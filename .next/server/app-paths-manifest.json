@@ -1,9 +1,22 @@
 {
+  "/api/admin/users/route": "app/api/admin/users/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/auth/delete/route": "app/api/auth/delete/route.js",
+  "/api/auth/login/route": "app/api/auth/login/route.js",
   "/api/auth/register/route": "app/api/auth/register/route.js",
+  "/api/health/route": "app/api/health/route.js",
+  "/api/messages/[id]/route": "app/api/messages/[id]/route.js",
+  "/api/properties/route": "app/api/properties/route.js",
   "/api/messages/route": "app/api/messages/route.js",
-  "/page": "app/page.js",
-  "/admin/page": "app/admin/page.js",
+  "/api/properties/[id]/route": "app/api/properties/[id]/route.js",
   "/agent/page": "app/agent/page.js",
+  "/admin/page": "app/admin/page.js",
+  "/agents/[id]/page": "app/agents/[id]/page.js",
   "/contact/page": "app/contact/page.js",
-  "/dashboard/page": "app/dashboard/page.js"
+  "/properties/[id]/page": "app/properties/[id]/page.js",
+  "/about/page": "app/about/page.js",
+  "/profile/page": "app/profile/page.js",
+  "/properties/page": "app/properties/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/page": "app/page.js"
 }
