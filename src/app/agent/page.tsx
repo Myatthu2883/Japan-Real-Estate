@@ -62,7 +62,7 @@ export default function AgentPanel() {
 }
 
 function AgentContent() {
-  const { user, refreshUser, updateCurrentUser } = useAuth()
+  const { user, refreshUser, updateCurrentUser, dbStatus } = useAuth()
   // Sync DB messages into localStorage on load
   useDBMessages(user?.id ?? '', 'agent', () => {
     if (user) setMessages(getAllAgentMessages(user.id))
@@ -145,10 +145,10 @@ function AgentContent() {
     setEditImages(slots)
   }
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingId) return
     const imgs = editImages.filter(s => s.trim())
-    updateProperty(editingId, {
+    const updates = {
       title: editForm.title, titleJa: editForm.titleJa, price: Number(editForm.price) || 0,
       type: editForm.type, city: editForm.city, area: editForm.area, rooms: editForm.rooms,
       size: Number(editForm.size) || 0, floor: editForm.floor ? Number(editForm.floor) : undefined,
@@ -156,16 +156,50 @@ function AgentContent() {
       description: editForm.description, descriptionJa: editForm.descriptionJa,
       imageUrl: imgs[0] || editForm.imageUrl || '', images: imgs.length > 0 ? imgs : undefined,
       isActive: editForm.isActive,
-    })
+    }
+    // 1. Always save to localStorage (instant)
+    updateProperty(editingId, updates)
+    // 2. Also sync to MySQL when DB is connected
+    if (dbStatus === 'connected') {
+      const token = localStorage.getItem('jp_token')
+      if (token) {
+        try {
+          await fetch(`/api/properties/${editingId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              title:          updates.title,
+              title_ja:       updates.titleJa,
+              price:          updates.price,
+              price_unit:     'jpy',
+              type:           updates.type,
+              city:           updates.city,
+              area:           updates.area,
+              rooms:          updates.rooms,
+              size:           updates.size,
+              floor:          updates.floor,
+              year_built:     updates.yearBuilt,
+              station:        updates.station,
+              description:    updates.description,
+              description_ja: updates.descriptionJa,
+              image_url:      updates.imageUrl,
+              images:         updates.images,
+              is_active:      updates.isActive,
+            }),
+          })
+        } catch { /* silently ignore — localStorage already saved */ }
+      }
+    }
     setEditingId(null); setEditForm({}); setEditImages(['', '', '']); doRefresh()
   }
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     setAddError('')
     if (!form.title || !form.price || !form.city || !form.area) { setAddError('Title, Price, City and Area are required'); return }
     if (!user) return
     const imgs = addImages.filter(s => s.trim())
     const primaryUrl = imgs[0] || 'https://images.unsplash.com/photo-1480796927426-f609979314bd?w=600&q=80'
+    // 1. Always save to localStorage (instant, works offline)
     createProperty({
       userId: user.id, agentId: user.id, title: form.title, titleJa: form.titleJa || form.title,
       price: Number(form.price), priceUnit: 'jpy', type: form.type as 'sale'|'rent',
@@ -174,6 +208,36 @@ function AgentContent() {
       station: form.station, description: form.description, descriptionJa: form.descriptionJa,
       imageUrl: primaryUrl, images: imgs.length > 0 ? imgs : undefined, isFeatured: false, isActive: true,
     })
+    // 2. Also save to MySQL when DB is connected
+    if (dbStatus === 'connected') {
+      const token = localStorage.getItem('jp_token')
+      if (token) {
+        try {
+          await fetch('/api/properties', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              title:          form.title,
+              title_ja:       form.titleJa || form.title,
+              price:          Number(form.price),
+              price_unit:     'jpy',
+              type:           form.type,
+              city:           form.city,
+              area:           form.area,
+              rooms:          form.rooms,
+              size:           Number(form.size) || null,
+              floor:          form.floor ? Number(form.floor) : null,
+              year_built:     form.yearBuilt ? Number(form.yearBuilt) : null,
+              station:        form.station,
+              description:    form.description,
+              description_ja: form.descriptionJa,
+              image_url:      primaryUrl,
+              images:         imgs.length > 0 ? imgs : null,
+            }),
+          })
+        } catch { /* silently ignore — localStorage already saved */ }
+      }
+    }
     setAddSuccess(true); setForm(emptyForm); setAddImages(['', '', '']); doRefresh()
     setTimeout(() => { setAddSuccess(false); go('listings') }, 1400)
   }
@@ -182,22 +246,55 @@ function AgentContent() {
     const file = e.target.files?.[0]; if (!file || !user) return
     if (file.size > 1200000) { setPMsg({ type: 'err', text: 'Image too large. Max 1.2MB.' }); return }
     const reader = new FileReader()
-    reader.onload = () => {
+    reader.onload = async () => {
       const result = reader.result as string
+      // 1. Always save to localStorage immediately (instant UI update)
       setAvatarPreview(result); updateUser(user.id, { avatar: result }); refreshUser(); doRefresh()
+      // 2. Also persist to MySQL when DB is connected
+      if (dbStatus === 'connected') {
+        const token = localStorage.getItem('jp_token')
+        if (token) {
+          try {
+            await fetch(`/api/users/${user.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ avatar: result }),
+            })
+          } catch { /* silently ignore — localStorage already saved */ }
+        }
+      }
       setPMsg({ type: 'ok', text: 'Photo updated ✓' }); setTimeout(() => setPMsg(null), 2000)
     }
     reader.readAsDataURL(file)
   }
 
-  const handleSaveProfile = () => {
+  const handleSaveProfile = async () => {
     if (!user) return; setPMsg(null)
     if (pPass || pPassNew || pPassConf) {
       if (pPass !== user.passwordHash) { setPMsg({ type: 'err', text: 'Current password is incorrect' }); return }
       if (pPassNew.length < 6) { setPMsg({ type: 'err', text: 'New password must be 6+ characters' }); return }
       if (pPassNew !== pPassConf) { setPMsg({ type: 'err', text: 'Passwords do not match' }); return }
     }
+    // 1. Save to localStorage (always works, instant)
     updateCurrentUser({ name: pName || user.name, phone: pPhone, bio: pBio, gender: pGender as any, dateOfBirth: pDob, nationality: pNationality, language: pLanguage, lineId: pLineId, specialties: pSpecialties, yearsExperience: pYears, website: pWebsite, ...(pPassNew ? { passwordHash: pPassNew } : {}) } as any)
+    // 2. Also sync name, phone, bio, and password to MySQL when DB is connected
+    if (dbStatus === 'connected') {
+      const token = localStorage.getItem('jp_token')
+      if (token) {
+        try {
+          await fetch(`/api/users/${user.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              name:  pName || user.name,
+              phone: pPhone,
+              bio:   pBio,
+              ...(pPassNew ? { password: pPassNew } : {}),
+            }),
+          })
+        } catch { /* silently ignore — localStorage already saved */ }
+      }
+    }
     setPPass(''); setPPassNew(''); setPPassConf('')
     setPMsg({ type: 'ok', text: '✓ Profile saved!' }); setEditMode(false)
     setTimeout(() => setPMsg(null), 3000)
